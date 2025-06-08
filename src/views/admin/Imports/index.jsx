@@ -32,7 +32,7 @@ import {
 } from "@chakra-ui/react";
 import Card from "components/card/Card.js";
 import React, { useState, useEffect } from "react";
-import { MdAdd, MdDelete } from "react-icons/md";
+import { MdAdd, MdDelete, MdChevronLeft, MdChevronRight } from "react-icons/md";
 import axiosInstance from "api/axios";
 
 export default function Imports() {
@@ -44,6 +44,9 @@ export default function Imports() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
   const toast = useToast();
 
   // Create modal state
@@ -74,21 +77,34 @@ export default function Imports() {
       }
 
       try {
+        // Fetch all orders with pagination
+        let allOrders = [];
+        let page = 1;
+
+        while (true) {
+          const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${branchId}&page=${page}&limit=${itemsPerPage}`);
+          const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
+          allOrders = [...allOrders, ...orderData];
+          const pagination = ordersResponse.data.pagination || {};
+          if (pagination.total && pagination.limit) {
+            setTotalPages(Math.ceil(pagination.total / pagination.limit));
+          }
+          if (page * itemsPerPage >= (pagination.total || allOrders.length)) break;
+          page++;
+        }
+
+        console.log("All Orders:", allOrders);
+        setOrders(allOrders);
+
         // Fetch imports
         const importsResponse = await axiosInstance.get(`/v1/imports/?dbType=${branchId}`);
         const importData = Array.isArray(importsResponse.data.data) ? importsResponse.data.data : [];
-        // Log để debug nếu có dữ liệu không hợp lệ
         importData.forEach((imp) => {
           if (!imp.details || !Array.isArray(imp.details)) {
             console.warn(`Phiếu nhập ${imp.importId} không có details hợp lệ:`, imp);
           }
         });
         setImports(importData);
-
-        // Fetch orders
-        const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${branchId}`);
-        const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
-        setOrders(orderData);
 
         // Fetch products
         const productsResponse = await axiosInstance.get(`/v1/products/?dbType=${branchId}`);
@@ -112,14 +128,13 @@ export default function Imports() {
     };
 
     fetchData();
-  }, [branchId, accessToken, toast]);
+  }, [branchId, accessToken, toast, itemsPerPage]);
 
   // Calculate total imported quantity for a product in an order
   const getTotalImportedQuantity = (orderId, productId) => {
     return imports
       .filter((imp) => imp.orderId === orderId)
       .reduce((total, imp) => {
-        // Kiểm tra nếu imp.details tồn tại và là mảng
         if (!imp.details || !Array.isArray(imp.details)) return total;
         const detail = imp.details.find((d) => d.productId === parseInt(productId));
         return total + (detail ? parseInt(detail.quantity || 0) : 0);
@@ -144,7 +159,6 @@ export default function Imports() {
       return isValid;
     }
 
-    // Chỉ cho phép tạo phiếu nhập cho đơn hàng type="import" và status="init" hoặc "in-progress"
     if (selectedOrder.type !== "import" || ["completed"].includes(selectedOrder.status)) {
       newErrors.orderId = `Đơn hàng ${createForm.orderId} không thể tạo phiếu nhập (loại: ${selectedOrder.type}, trạng thái: ${selectedOrder.status})`;
       isValid = false;
@@ -159,7 +173,6 @@ export default function Imports() {
         newErrors.details[index].quantity = "Số lượng phải lớn hơn 0";
         isValid = false;
       } else {
-        // Check if quantity exceeds order's limit
         const orderDetail = selectedOrder.details.find((d) => d.productId === parseInt(detail.productId));
         if (orderDetail) {
           const totalImported = getTotalImportedQuantity(createForm.orderId, detail.productId);
@@ -195,11 +208,10 @@ export default function Imports() {
       return;
     }
 
-    // Additional check for quantity limits before API call
     const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
     for (const detail of createForm.details) {
       const orderDetail = selectedOrder.details.find((d) => d.productId === parseInt(detail.productId));
-      if (!orderDetail) continue; // Bỏ qua nếu không tìm thấy orderDetail (đã xử lý trong validateForm)
+      if (!orderDetail) continue;
       const totalImported = getTotalImportedQuantity(createForm.orderId, detail.productId);
       const newQuantity = parseInt(detail.quantity);
       const maxQuantity = parseInt(orderDetail.quantity);
@@ -383,7 +395,7 @@ export default function Imports() {
                 </FormLabel>
                 <Select
                   value={createForm.orderId}
-                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value})}
+                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value, details: [] })}
                   placeholder="Chọn đơn hàng"
                   size="md"
                   borderColor={brandColor}
