@@ -29,7 +29,7 @@ import {
 } from "@chakra-ui/react";
 import Card from "components/card/Card.js";
 import React, { useState, useEffect } from "react";
-import { MdAdd, MdDelete } from "react-icons/md";
+import { MdAdd, MdDelete, MdChevronLeft, MdChevronRight } from "react-icons/md";
 import axiosInstance from "api/axios";
 
 export default function Order() {
@@ -42,6 +42,9 @@ export default function Order() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
   const toast = useToast();
 
   // Create modal state
@@ -75,7 +78,6 @@ export default function Order() {
   const accessToken = localStorage.getItem("accessToken");
 
   useEffect(() => {
-    // Fetch orders, warehouses, and products
     const fetchData = async () => {
       if (!accessToken) {
         toast({
@@ -90,21 +92,31 @@ export default function Order() {
       }
 
       try {
-        // Fetch orders
-        const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${dbType}`);
-        console.log("Orders API Response:", ordersResponse.data);
-        const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
-        setOrders(orderData);
+        let allOrders = [];
+        let page = 1;
+
+        while (true) {
+          const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${dbType}&page=${page}&limit=${itemsPerPage}`);
+          const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
+          allOrders = [...allOrders, ...orderData];
+          const pagination = ordersResponse.data.pagination || {};
+          if (pagination.total && pagination.limit) {
+            setTotalPages(Math.ceil(pagination.total / pagination.limit));
+          }
+          if (page * itemsPerPage >= (pagination.total || allOrders.length)) break;
+          page++;
+        }
+
+        console.log("All Orders:", allOrders);
+        setOrders(allOrders);
 
         // Fetch warehouses
         const warehousesResponse = await axiosInstance.get(`/v1/warehouses/?dbType=${dbType}`);
-        console.log("Warehouses API Response:", warehousesResponse.data);
         const warehouseData = Array.isArray(warehousesResponse.data.data) ? warehousesResponse.data.data : [];
         setWarehouses(warehouseData);
 
         // Fetch products
         const productsResponse = await axiosInstance.get(`/v1/products/?dbType=${dbType}`);
-        console.log("Products API Response:", productsResponse.data);
         const productData = Array.isArray(productsResponse.data.data) ? productsResponse.data.data : [];
         setProducts(productData);
 
@@ -130,7 +142,7 @@ export default function Order() {
     };
 
     fetchData();
-  }, [dbType, accessToken, toast]);
+  }, [dbType, accessToken, toast, itemsPerPage]);
 
   // Fetch order details
   const fetchOrderDetails = async (orderId) => {
@@ -446,12 +458,25 @@ export default function Order() {
     setUpdateDetailsForm({ ...updateDetailsForm, details: updatedDetails });
   };
 
+  // Pagination handlers
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
+  const nextPage = () => setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+  const prevPage = () => setCurrentPage((prev) => Math.max(prev - 1, 1));
+
+  // Get current orders for the page
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentOrders = orders.slice(indexOfFirstItem, indexOfLastItem);
+
   return (
     <Box pt={{ base: "180px", md: "80px", xl: "80px" }}>
       <SimpleGrid columns={{ base: 1, md: 1, xl: 1 }} gap="20px" mb="20px">
         <Card>
           {/* Header with Create Button */}
-          <Flex justify="flex-end" align="center" mb="4">
+          <Flex justify="space-between" align="center" mb="4">
+            <Text fontSize="lg" fontWeight="bold" color={brandColor}>
+              Danh sách đơn hàng (Trang {currentPage} / {totalPages})
+            </Text>
             <Button
               leftIcon={<MdAdd />}
               colorScheme="teal"
@@ -485,14 +510,14 @@ export default function Order() {
                       Đang tải...
                     </Td>
                   </Tr>
-                ) : orders.length === 0 ? (
+                ) : currentOrders.length === 0 ? (
                   <Tr>
                     <Td colSpan={10} textAlign="center">
                       Không tìm thấy đơn hàng
                     </Td>
                   </Tr>
                 ) : (
-                  orders.map((order) => (
+                  currentOrders.map((order) => (
                     <Tr key={order.orderId} _hover={{ bg: boxBg }}>
                       <Td>
                         <Link
@@ -559,6 +584,29 @@ export default function Order() {
               </Tbody>
             </Table>
           </Box>
+
+          {/* Pagination Controls */}
+          <Flex justify="space-between" mt="4" align="center">
+            <Button
+              leftIcon={<MdChevronLeft />}
+              colorScheme="teal"
+              onClick={prevPage}
+              isDisabled={currentPage === 1}
+            >
+              Trước
+            </Button>
+            <Text>
+              Trang {currentPage} / {totalPages}
+            </Text>
+            <Button
+              rightIcon={<MdChevronRight />}
+              colorScheme="teal"
+              onClick={nextPage}
+              isDisabled={currentPage === totalPages}
+            >
+              Sau
+            </Button>
+          </Flex>
         </Card>
       </SimpleGrid>
 

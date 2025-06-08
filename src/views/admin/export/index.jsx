@@ -8,7 +8,7 @@ import {
   Table,
   Thead,
   Tbody,
-  Tr,
+  Tr, 
   Th,
   Td,
   useColorModeValue,

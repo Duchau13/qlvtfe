@@ -25,6 +25,10 @@ import {
   useDisclosure,
   Input,
   IconButton,
+  Spinner,
+  FormErrorMessage,
+  Tooltip,
+  Fade,
 } from "@chakra-ui/react";
 import Card from "components/card/Card.js";
 import React, { useState, useEffect } from "react";
@@ -39,6 +43,7 @@ export default function Imports() {
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const toast = useToast();
 
   // Create modal state
@@ -47,6 +52,7 @@ export default function Imports() {
     orderId: "",
     details: [],
   });
+  const [errors, setErrors] = useState({ orderId: "", details: [] });
 
   // Get branchId from user object and accessToken from localStorage
   const user = JSON.parse(localStorage.getItem("user")) || {};
@@ -54,7 +60,6 @@ export default function Imports() {
   const accessToken = localStorage.getItem("accessToken");
 
   useEffect(() => {
-    // Fetch imports, orders, and products from API
     const fetchData = async () => {
       if (!accessToken) {
         toast({
@@ -71,32 +76,30 @@ export default function Imports() {
       try {
         // Fetch imports
         const importsResponse = await axiosInstance.get(`/v1/imports/?dbType=${branchId}`);
-        console.log("Imports API Response:", importsResponse.data);
         const importData = Array.isArray(importsResponse.data.data) ? importsResponse.data.data : [];
+        // Log để debug nếu có dữ liệu không hợp lệ
+        importData.forEach((imp) => {
+          if (!imp.details || !Array.isArray(imp.details)) {
+            console.warn(`Phiếu nhập ${imp.importId} không có details hợp lệ:`, imp);
+          }
+        });
         setImports(importData);
 
         // Fetch orders
         const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${branchId}`);
-        console.log("Orders API Response:", ordersResponse.data);
         const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
         setOrders(orderData);
 
         // Fetch products
         const productsResponse = await axiosInstance.get(`/v1/products/?dbType=${branchId}`);
-        console.log("Products API Response:", productsResponse.data);
         const productData = Array.isArray(productsResponse.data.data) ? productsResponse.data.data : [];
         setProducts(productData);
 
         setLoading(false);
       } catch (error) {
-        console.error("Lỗi khi lấy dữ liệu:", {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-        });
         toast({
           title: "Lỗi khi lấy dữ liệu",
-          description: error.response?.data?.message || error.message,
+          description: error.response?.data?.message || "Có lỗi xảy ra.",
           status: "error",
           duration: 5000,
           isClosable: true,
@@ -111,8 +114,76 @@ export default function Imports() {
     fetchData();
   }, [branchId, accessToken, toast]);
 
+  // Calculate total imported quantity for a product in an order
+  const getTotalImportedQuantity = (orderId, productId) => {
+    return imports
+      .filter((imp) => imp.orderId === orderId)
+      .reduce((total, imp) => {
+        // Kiểm tra nếu imp.details tồn tại và là mảng
+        if (!imp.details || !Array.isArray(imp.details)) return total;
+        const detail = imp.details.find((d) => d.productId === parseInt(productId));
+        return total + (detail ? parseInt(detail.quantity || 0) : 0);
+      }, 0);
+  };
+
+  // Validate form and check quantity limits
+  const validateForm = () => {
+    const newErrors = { orderId: "", details: createForm.details.map(() => ({ productId: "", quantity: "" })) };
+    let isValid = true;
+
+    if (!createForm.orderId) {
+      newErrors.orderId = "Vui lòng chọn đơn hàng";
+      isValid = false;
+    }
+
+    const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
+    if (!selectedOrder) {
+      newErrors.orderId = "Đơn hàng không tồn tại";
+      isValid = false;
+      setErrors(newErrors);
+      return isValid;
+    }
+
+    // Chỉ cho phép tạo phiếu nhập cho đơn hàng type="import" và status="init" hoặc "in-progress"
+    if (selectedOrder.type !== "import" || ["completed"].includes(selectedOrder.status)) {
+      newErrors.orderId = `Đơn hàng ${createForm.orderId} không thể tạo phiếu nhập (loại: ${selectedOrder.type}, trạng thái: ${selectedOrder.status})`;
+      isValid = false;
+    }
+
+    createForm.details.forEach((detail, index) => {
+      if (!detail.productId) {
+        newErrors.details[index].productId = "Vui lòng chọn sản phẩm";
+        isValid = false;
+      }
+      if (!detail.quantity || parseInt(detail.quantity) <= 0) {
+        newErrors.details[index].quantity = "Số lượng phải lớn hơn 0";
+        isValid = false;
+      } else {
+        // Check if quantity exceeds order's limit
+        const orderDetail = selectedOrder.details.find((d) => d.productId === parseInt(detail.productId));
+        if (orderDetail) {
+          const totalImported = getTotalImportedQuantity(createForm.orderId, detail.productId);
+          const newQuantity = parseInt(detail.quantity);
+          const maxQuantity = parseInt(orderDetail.quantity);
+          if (totalImported + newQuantity > maxQuantity) {
+            newErrors.details[index].quantity = `Số lượng vượt quá giới hạn (${maxQuantity - totalImported} ${orderDetail.productUnit} còn lại)`;
+            isValid = false;
+          }
+        } else {
+          newErrors.details[index].productId = "Sản phẩm không thuộc đơn hàng";
+          isValid = false;
+        }
+      }
+    });
+
+    setErrors(newErrors);
+    return isValid;
+  };
+
   // Handle Create
   const handleCreate = async () => {
+    if (!validateForm()) return;
+
     if (!accessToken) {
       toast({
         title: "Lỗi xác thực",
@@ -124,17 +195,27 @@ export default function Imports() {
       return;
     }
 
-    if (!createForm.orderId || createForm.details.length === 0) {
-      toast({
-        title: "Lỗi nhập liệu",
-        description: "Vui lòng chọn đơn hàng và thêm ít nhất một sản phẩm.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
+    // Additional check for quantity limits before API call
+    const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
+    for (const detail of createForm.details) {
+      const orderDetail = selectedOrder.details.find((d) => d.productId === parseInt(detail.productId));
+      if (!orderDetail) continue; // Bỏ qua nếu không tìm thấy orderDetail (đã xử lý trong validateForm)
+      const totalImported = getTotalImportedQuantity(createForm.orderId, detail.productId);
+      const newQuantity = parseInt(detail.quantity);
+      const maxQuantity = parseInt(orderDetail.quantity);
+      if (totalImported + newQuantity > maxQuantity) {
+        toast({
+          title: "Lỗi số lượng",
+          description: `Sản phẩm ${orderDetail.productName} đã nhập đủ ${maxQuantity} ${orderDetail.productUnit} theo đơn hàng ${createForm.orderId}.`,
+          status: "error",
+          duration: 5000,
+          isClosable: true,
+        });
+        return;
+      }
     }
 
+    setIsSubmitting(true);
     try {
       const response = await axiosInstance.post("/v1/imports/", {
         orderId: createForm.orderId,
@@ -151,20 +232,18 @@ export default function Imports() {
         isClosable: true,
       });
       setCreateForm({ orderId: "", details: [] });
+      setErrors({ orderId: "", details: [] });
       onCreateClose();
     } catch (error) {
-      console.error("Lỗi khi tạo phiếu nhập:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
       toast({
         title: "Lỗi khi tạo phiếu nhập",
-        description: error.response?.data?.message || error.message,
+        description: error.response?.data?.message || "Có lỗi xảy ra.",
         status: "error",
         duration: 5000,
         isClosable: true,
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -174,6 +253,10 @@ export default function Imports() {
       ...createForm,
       details: [...createForm.details, { productId: "", quantity: "" }],
     });
+    setErrors({
+      ...errors,
+      details: [...errors.details, { productId: "", quantity: "" }],
+    });
   };
 
   // Remove product from details
@@ -181,6 +264,10 @@ export default function Imports() {
     setCreateForm({
       ...createForm,
       details: createForm.details.filter((_, i) => i !== index),
+    });
+    setErrors({
+      ...errors,
+      details: errors.details.filter((_, i) => i !== index),
     });
   };
 
@@ -191,23 +278,36 @@ export default function Imports() {
     setCreateForm({ ...createForm, details: updatedDetails });
   };
 
+  // Get filtered products based on selected order
+  const getFilteredProducts = () => {
+    if (!createForm.orderId) return [];
+    const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
+    if (!selectedOrder || !selectedOrder.details || selectedOrder.details.length === 0) return [];
+    return selectedOrder.details.map((detail) => ({
+      productId: detail.productId,
+      name: detail.productName,
+      unit: detail.productUnit,
+    }));
+  };
+
   return (
-    <Box pt={{ base: "120px", md: "60px", xl: "60px" }} px="24px">
-      <VStack spacing="24px" align="stretch">
-        <Flex justify="space-between" align="center">
-          <Heading size="lg" color={brandColor}>
+    <Box pt={{ base: "100px", md: "60px" }} px={{ base: "16px", md: "24px" }}>
+      <VStack spacing="16px" align="stretch">
+        <Flex justify="space-between" align="center" flexWrap="wrap" gap="4">
+          <Heading size="lg" color={brandColor} fontWeight="extrabold">
             Quản lý phiếu nhập kho
           </Heading>
           <Button
             leftIcon={<MdAdd />}
             colorScheme="teal"
             onClick={onCreateOpen}
+            _hover={{ transform: "scale(1.05)" }}
           >
             Tạo phiếu nhập
           </Button>
         </Flex>
 
-        <Card bg={tableBg} borderRadius="xl" boxShadow="2xl" p="6">
+        <Card bg={tableBg} borderRadius="xl" boxShadow="md" p="5">
           <Box overflowX="auto">
             <Table variant="simple" colorScheme="teal" size="md">
               <Thead bg={brandColor}>
@@ -225,7 +325,7 @@ export default function Imports() {
                 {loading ? (
                   <Tr>
                     <Td colSpan={7} textAlign="center" py="4">
-                      Đang tải...
+                      <Spinner size="md" color={brandColor} />
                     </Td>
                   </Tr>
                 ) : imports.length === 0 ? (
@@ -241,13 +341,13 @@ export default function Imports() {
                       _hover={{ bg: boxBg }}
                       transition="background 0.2s"
                     >
-                      <Td>{importItem.importId}</Td>
-                      <Td>{importItem.orderId}</Td>
-                      <Td>{importItem.warehouseId}</Td>
-                      <Td>{new Date(importItem.createdTime).toLocaleString()}</Td>
-                      <Td>{new Date(importItem.updatedTime).toLocaleString()}</Td>
-                      <Td>{importItem.createdBy}</Td>
-                      <Td>{importItem.updatedBy}</Td>
+                      <Td fontSize="sm">{importItem.importId}</Td>
+                      <Td fontSize="sm">{importItem.orderId}</Td>
+                      <Td fontSize="sm">{importItem.warehouseId}</Td>
+                      <Td fontSize="sm">{new Date(importItem.createdTime).toLocaleString()}</Td>
+                      <Td fontSize="sm">{new Date(importItem.updatedTime).toLocaleString()}</Td>
+                      <Td fontSize="sm">{importItem.createdBy}</Td>
+                      <Td fontSize="sm">{importItem.updatedBy}</Td>
                     </Tr>
                   ))
                 )}
@@ -258,64 +358,119 @@ export default function Imports() {
       </VStack>
 
       {/* Create Import Modal */}
-      <Modal isOpen={isCreateOpen} onClose={onCreateClose}>
+      <Modal isOpen={isCreateOpen} onClose={onCreateClose} size={{ base: "full", md: "md" }}>
         <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Tạo phiếu nhập mới</ModalHeader>
+        <ModalContent
+          bg={tableBg}
+          borderRadius="xl"
+          border="2px solid"
+          borderColor="transparent"
+          sx={{
+            backgroundClip: "padding-box",
+            borderImage: "linear-gradient(45deg, teal.500, purple.500) 1",
+          }}
+          mx={{ base: 2, md: 0 }}
+        >
+          <ModalHeader color={brandColor} fontWeight="extrabold">
+            Tạo phiếu nhập mới
+          </ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing="4">
-              <FormControl>
-                <FormLabel>ID Đơn hàng</FormLabel>
+              <FormControl isInvalid={errors.orderId}>
+                <FormLabel fontSize="sm" fontWeight="bold" color={brandColor}>
+                  ID Đơn hàng
+                </FormLabel>
                 <Select
                   value={createForm.orderId}
-                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value })}
+                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value})}
                   placeholder="Chọn đơn hàng"
+                  size="md"
+                  borderColor={brandColor}
+                  _focus={{ borderColor: "purple.500", boxShadow: "0 0 0 1px purple.500" }}
+                  aria-label="Chọn đơn hàng"
                 >
-                  {orders.map((order) => (
-                    <option key={order.orderId} value={order.orderId}>
-                      {order.orderId}
-                    </option>
-                  ))}
+                  {orders
+                    .filter((order) => order.type === "import" && ["init", "in-progress"].includes(order.status))
+                    .map((order) => (
+                      <option key={order.orderId} value={order.orderId}>
+                        {order.orderId}
+                      </option>
+                    ))}
                 </Select>
+                <Fade in={errors.orderId}>
+                  <FormErrorMessage>{errors.orderId}</FormErrorMessage>
+                </Fade>
               </FormControl>
               <FormControl>
-                <FormLabel>Chi tiết sản phẩm</FormLabel>
+                <FormLabel fontSize="sm" fontWeight="bold" color={brandColor}>
+                  Chi tiết sản phẩm
+                </FormLabel>
                 {createForm.details.map((detail, index) => (
-                  <Flex key={index} align="center" mb="2" gap="2">
-                    <Select
-                      placeholder="Chọn sản phẩm"
-                      value={detail.productId}
-                      onChange={(e) => updateProductDetail(index, "productId", e.target.value)}
-                      flex="2"
-                    >
-                      {products.map((product) => (
-                        <option key={product.productId} value={product.productId}>
-                          {product.name} (ID: {product.productId}, Đơn vị: {product.unit})
-                        </option>
-                      ))}
-                    </Select>
-                    <Input
-                      placeholder="Số lượng"
-                      type="number"
-                      value={detail.quantity}
-                      onChange={(e) => updateProductDetail(index, "quantity", e.target.value)}
-                      flex="1"
-                    />
-                    <IconButton
-                      icon={<MdDelete />}
-                      colorScheme="red"
-                      size="sm"
-                      onClick={() => removeProductFromDetails(index)}
-                    />
+                  <Flex
+                    key={index}
+                    align="center"
+                    mb="3"
+                    gap="3"
+                    flexWrap={{ base: "wrap", md: "nowrap" }}
+                  >
+                    <FormControl isInvalid={errors.details[index]?.productId}>
+                      <Select
+                        placeholder="Chọn sản phẩm"
+                        value={detail.productId}
+                        onChange={(e) => updateProductDetail(index, "productId", e.target.value)}
+                        size="md"
+                        flex={{ base: "1 1 100%", md: "2" }}
+                        borderColor={brandColor}
+                        _focus={{ borderColor: "purple.500", boxShadow: "0 0 0 1px purple.500" }}
+                        aria-label={`Chọn sản phẩm ${index + 1}`}
+                      >
+                        {getFilteredProducts().map((product) => (
+                          <option key={product.productId} value={product.productId}>
+                            {product.name} (ID: {product.productId}, Đơn vị: {product.unit})
+                          </option>
+                        ))}
+                      </Select>
+                      <Fade in={errors.details[index]?.productId}>
+                        <FormErrorMessage>{errors.details[index]?.productId}</FormErrorMessage>
+                      </Fade>
+                    </FormControl>
+                    <FormControl isInvalid={errors.details[index]?.quantity}>
+                      <Input
+                        placeholder="Số lượng"
+                        type="number"
+                        value={detail.quantity}
+                        onChange={(e) => updateProductDetail(index, "quantity", e.target.value)}
+                        size="md"
+                        flex={{ base: "1 1 100%", md: "1" }}
+                        borderColor={brandColor}
+                        _focus={{ borderColor: "purple.500", boxShadow: "0 0 0 1px purple.500" }}
+                        aria-label={`Số lượng sản phẩm ${index + 1}`}
+                      />
+                      <Fade in={errors.details[index]?.quantity}>
+                        <FormErrorMessage>{errors.details[index]?.quantity}</FormErrorMessage>
+                      </Fade>
+                    </FormControl>
+                    <Tooltip label="Xóa sản phẩm">
+                      <IconButton
+                        icon={<MdDelete />}
+                        colorScheme="red"
+                        size="md"
+                        onClick={() => removeProductFromDetails(index)}
+                        aria-label={`Xóa sản phẩm ${index + 1}`}
+                        _hover={{ transform: "scale(1.1)" }}
+                      />
+                    </Tooltip>
                   </Flex>
                 ))}
                 <Button
                   leftIcon={<MdAdd />}
                   colorScheme="teal"
                   size="sm"
-                  mt="2"
+                  mt="3"
                   onClick={addProductToDetails}
+                  isDisabled={!createForm.orderId}
+                  _hover={{ transform: "scale(1.05)" }}
                 >
                   Thêm sản phẩm
                 </Button>
@@ -323,10 +478,21 @@ export default function Imports() {
             </VStack>
           </ModalBody>
           <ModalFooter>
-            <Button colorScheme="teal" mr={3} onClick={handleCreate}>
+            <Button
+              colorScheme="teal"
+              mr={3}
+              onClick={handleCreate}
+              isLoading={isSubmitting}
+              loadingText="Đang tạo"
+              _hover={{ transform: "scale(1.05)" }}
+            >
               Tạo
             </Button>
-            <Button variant="ghost" onClick={onCreateClose}>
+            <Button
+              variant="ghost"
+              onClick={onCreateClose}
+              _hover={{ transform: "scale(1.05)", bg: "gray.200" }}
+            >
               Hủy
             </Button>
           </ModalFooter>

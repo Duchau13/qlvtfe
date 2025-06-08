@@ -18,8 +18,8 @@ import RTL from 'views/admin/rtl';
 
 // Auth Imports
 import SignInCentered from 'views/auth/signIn';
-import SignUpCentered from 'views/auth/signup';
-import Order from 'views/admin/Orders';
+import SignUpCentered from 'views/auth/signup'; 
+import Order from 'views/admin/Orders'; 
 import Warehouses from 'views/admin/warehouse';
 import Imports from 'views/admin/Imports';
 import Exports from 'views/admin/export';
