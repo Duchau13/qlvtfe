@@ -8,7 +8,7 @@ import {
   Table,
   Thead,
   Tbody,
-  Tr,
+  Tr, 
   Th,
   Td,
   useColorModeValue,
@@ -25,6 +25,9 @@ import {
   useDisclosure,
   Input,
   IconButton,
+  Spinner,
+  FormErrorMessage,
+  Fade,
 } from "@chakra-ui/react";
 import Card from "components/card/Card.js";
 import React, { useState, useEffect } from "react";
@@ -39,6 +42,10 @@ export default function Exports() {
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
   const toast = useToast();
 
   // Create modal state
@@ -47,6 +54,7 @@ export default function Exports() {
     orderId: "",
     details: [],
   });
+  const [errors, setErrors] = useState({ orderId: "", details: [] });
 
   // Get branchId from user object and accessToken from localStorage
   const user = JSON.parse(localStorage.getItem("user")) || {};
@@ -54,7 +62,6 @@ export default function Exports() {
   const accessToken = localStorage.getItem("accessToken");
 
   useEffect(() => {
-    // Fetch exports, orders, and products from API
     const fetchData = async () => {
       if (!accessToken) {
         toast({
@@ -69,17 +76,30 @@ export default function Exports() {
       }
 
       try {
+        // Fetch all orders with pagination
+        let allOrders = [];
+        let page = 1;
+
+        while (true) {
+          const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${branchId}&page=${page}&limit=${itemsPerPage}`);
+          const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
+          allOrders = [...allOrders, ...orderData];
+          const pagination = ordersResponse.data.pagination || {};
+          if (pagination.total && pagination.limit) {
+            setTotalPages(Math.ceil(pagination.total / pagination.limit));
+          }
+          if (page * itemsPerPage >= (pagination.total || allOrders.length)) break;
+          page++;
+        }
+
+        console.log("All Orders:", allOrders);
+        setOrders(allOrders);
+
         // Fetch exports
         const exportsResponse = await axiosInstance.get(`/v1/exports/?dbType=${branchId}`);
         console.log("Exports API Response:", exportsResponse.data);
         const exportData = Array.isArray(exportsResponse.data.data) ? exportsResponse.data.data : [];
         setExports(exportData);
-
-        // Fetch orders
-        const ordersResponse = await axiosInstance.get(`/v1/orders/?dbType=${branchId}`);
-        console.log("Orders API Response:", ordersResponse.data);
-        const orderData = Array.isArray(ordersResponse.data.data) ? ordersResponse.data.data : [];
-        setOrders(orderData);
 
         // Fetch products
         const productsResponse = await axiosInstance.get(`/v1/products/?dbType=${branchId}`);
@@ -109,10 +129,51 @@ export default function Exports() {
     };
 
     fetchData();
-  }, [branchId, accessToken, toast]);
+  }, [branchId, accessToken, toast, itemsPerPage]);
+
+  // Validate form
+  const validateForm = () => {
+    const newErrors = { orderId: "", details: createForm.details.map(() => ({ productId: "", quantity: "" })) };
+    let isValid = true;
+
+    if (!createForm.orderId) {
+      newErrors.orderId = "Vui lòng chọn đơn hàng";
+      isValid = false;
+    }
+
+    const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
+    if (!selectedOrder) {
+      newErrors.orderId = "Đơn hàng không tồn tại";
+      isValid = false;
+      setErrors(newErrors);
+      return isValid;
+    }
+
+    // Chỉ cho phép tạo phiếu xuất cho đơn hàng type="export" và status="init" hoặc "in-progress"
+    if (selectedOrder.type !== "export" || ["completed"].includes(selectedOrder.status)) {
+      newErrors.orderId = `Đơn hàng ${createForm.orderId} không thể tạo phiếu xuất (loại: ${selectedOrder.type}, trạng thái: ${selectedOrder.status})`;
+      isValid = false;
+    }
+
+    createForm.details.forEach((detail, index) => {
+      if (!detail.productId) {
+        newErrors.details[index].productId = "Vui lòng chọn sản phẩm";
+        isValid = false;
+      }
+      if (!detail.quantity || parseInt(detail.quantity) <= 0) {
+        newErrors.details[index].quantity = "Số lượng phải lớn hơn 0";
+        isValid = false;
+      }
+    });
+
+    setErrors(newErrors);
+    return isValid;
+  };
 
   // Handle Create
   const handleCreate = async () => {
+    if (!validateForm()) return;
+
     if (!accessToken) {
       toast({
         title: "Lỗi xác thực",
@@ -124,17 +185,7 @@ export default function Exports() {
       return;
     }
 
-    if (!createForm.orderId || createForm.details.length === 0) {
-      toast({
-        title: "Lỗi nhập liệu",
-        description: "Vui lòng chọn đơn hàng và thêm ít nhất một sản phẩm.",
-        status: "error",
-        duration: 5000,
-        isClosable: true,
-      });
-      return;
-    }
-
+    setIsSubmitting(true);
     try {
       const response = await axiosInstance.post("/v1/exports/", {
         orderId: createForm.orderId,
@@ -151,6 +202,7 @@ export default function Exports() {
         isClosable: true,
       });
       setCreateForm({ orderId: "", details: [] });
+      setErrors({ orderId: "", details: [] });
       onCreateClose();
     } catch (error) {
       console.error("Lỗi khi tạo phiếu xuất:", {
@@ -165,6 +217,8 @@ export default function Exports() {
         duration: 5000,
         isClosable: true,
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -174,6 +228,10 @@ export default function Exports() {
       ...createForm,
       details: [...createForm.details, { productId: "", quantity: "" }],
     });
+    setErrors({
+      ...errors,
+      details: [...errors.details, { productId: "", quantity: "" }],
+    });
   };
 
   // Remove product from details
@@ -182,6 +240,10 @@ export default function Exports() {
       ...createForm,
       details: createForm.details.filter((_, i) => i !== index),
     });
+    setErrors({
+      ...errors,
+      details: errors.details.filter((_, i) => i !== index),
+    });
   };
 
   // Update product details
@@ -189,6 +251,18 @@ export default function Exports() {
     const updatedDetails = [...createForm.details];
     updatedDetails[index] = { ...updatedDetails[index], [field]: value };
     setCreateForm({ ...createForm, details: updatedDetails });
+  };
+
+  // Get filtered products based on selected order
+  const getFilteredProducts = () => {
+    if (!createForm.orderId) return [];
+    const selectedOrder = orders.find((order) => order.orderId === createForm.orderId);
+    if (!selectedOrder || !selectedOrder.details || selectedOrder.details.length === 0) return [];
+    return selectedOrder.details.map((detail) => ({
+      productId: detail.productId,
+      name: detail.productName,
+      unit: detail.productUnit,
+    }));
   };
 
   return (
@@ -265,19 +339,24 @@ export default function Exports() {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing="4">
-              <FormControl>
+              <FormControl isInvalid={errors.orderId}>
                 <FormLabel>ID Đơn hàng</FormLabel>
                 <Select
                   value={createForm.orderId}
-                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value })}
+                  onChange={(e) => setCreateForm({ ...createForm, orderId: e.target.value, details: [] })}
                   placeholder="Chọn đơn hàng"
                 >
-                  {orders.map((order) => (
-                    <option key={order.orderId} value={order.orderId}>
-                      {order.orderId}
-                    </option>
-                  ))}
+                  {orders
+                    .filter((order) => order.type === "export" && ["init", "in-progress"].includes(order.status))
+                    .map((order) => (
+                      <option key={order.orderId} value={order.orderId}>
+                        {order.orderId}
+                      </option>
+                    ))}
                 </Select>
+                <Fade in={errors.orderId}>
+                  <FormErrorMessage>{errors.orderId}</FormErrorMessage>
+                </Fade>
               </FormControl>
               <FormControl>
                 <FormLabel>Chi tiết sản phẩm</FormLabel>
@@ -289,7 +368,7 @@ export default function Exports() {
                       onChange={(e) => updateProductDetail(index, "productId", e.target.value)}
                       flex="2"
                     >
-                      {products.map((product) => (
+                      {getFilteredProducts().map((product) => (
                         <option key={product.productId} value={product.productId}>
                           {product.name} (ID: {product.productId}, Đơn vị: {product.unit})
                         </option>
@@ -316,6 +395,7 @@ export default function Exports() {
                   size="sm"
                   mt="2"
                   onClick={addProductToDetails}
+                  isDisabled={!createForm.orderId}
                 >
                   Thêm sản phẩm
                 </Button>
@@ -323,7 +403,13 @@ export default function Exports() {
             </VStack>
           </ModalBody>
           <ModalFooter>
-            <Button colorScheme="teal" mr={3} onClick={handleCreate}>
+            <Button
+              colorScheme="teal"
+              mr={3}
+              onClick={handleCreate}
+              isLoading={isSubmitting}
+              loadingText="Đang tạo"
+            >
               Tạo
             </Button>
             <Button variant="ghost" onClick={onCreateClose}>

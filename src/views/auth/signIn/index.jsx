@@ -15,11 +15,14 @@ import {
   Select,
   Text,
   useColorModeValue,
+  Stack,
+  Alert,
+  AlertIcon,
+  Fade,
 } from "@chakra-ui/react";
 import { HSeparator } from "components/separator/Separator";
 import DefaultAuth from "layouts/auth/Default";
 import illustration from "assets/img/auth/auth.png";
-import { FcGoogle } from "react-icons/fc";
 import { MdOutlineRemoveRedEye } from "react-icons/md";
 import { RiEyeCloseLine } from "react-icons/ri";
 import axiosInstance from "api/axios";
@@ -27,19 +30,8 @@ import axiosInstance from "api/axios";
 function SignIn() {
   const textColor = useColorModeValue("navy.700", "white");
   const textColorSecondary = "gray.400";
-  const textColorDetails = useColorModeValue("navy.700", "secondaryGray.600");
   const textColorBrand = useColorModeValue("brand.500", "white");
   const brandStars = useColorModeValue("brand.500", "brand.400");
-  const googleBg = useColorModeValue("secondaryGray.300", "whiteAlpha.200");
-  const googleText = useColorModeValue("navy.700", "white");
-  const googleHover = useColorModeValue(
-    { bg: "gray.200" },
-    { bg: "whiteAlpha.300" }
-  );
-  const googleActive = useColorModeValue(
-    { bg: "secondaryGray.300" },
-    { bg: "whiteAlpha.200" }
-  );
 
   const [show, setShow] = useState(false);
   const [userId, setUserId] = useState("");
@@ -75,7 +67,6 @@ function SignIn() {
         setErrorMsg("Invalid login response");
       }
     } catch (error) {
-      // Lấy message lỗi từ response nếu có
       if (error.response?.data?.message) {
         setErrorMsg(error.response.data.message);
       } else {
@@ -89,142 +80,107 @@ function SignIn() {
   return (
     <DefaultAuth illustrationBackground={illustration} image={illustration}>
       <Flex
-        maxW={{ base: "100%", md: "max-content" }}
+        maxW={{ base: "100%", md: "400px" }}
         w="100%"
-        mx={{ base: "auto", lg: "0px" }}
-        me="auto"
+        mx="auto"
         h="100%"
-        alignItems="start"
+        alignItems="center"
         justifyContent="center"
-        mb={{ base: "30px", md: "60px" }}
-        px={{ base: "25px", md: "0px" }}
-        mt={{ base: "40px", md: "14vh" }}
+        px={{ base: "20px", md: "0px" }}
+        mt={{ base: "20px", md: "10vh" }}
         flexDirection="column"
       >
-        <Box me="auto">
-          <Heading color={textColor} fontSize="36px" mb="10px">
+        <Box mb="20px" textAlign="center">
+          <Heading color={textColor} fontSize={{ base: "28px", md: "32px" }} mb="8px">
             Sign In
           </Heading>
-          <Text
-            mb="36px"
-            ms="4px"
-            color={textColorSecondary}
-            fontWeight="400"
-            fontSize="md"
-          >
-            Enter your userId, password, and select your area to sign in!
+          <Text color={textColorSecondary} fontWeight="400" fontSize="sm">
+            Enter your credentials to access your account
           </Text>
         </Box>
-        <Flex
-          zIndex="2"
-          direction="column"
-          w={{ base: "100%", md: "420px" }}
-          maxW="100%"
-          background="transparent"
-          borderRadius="15px"
-          mx={{ base: "auto", lg: "unset" }}
-          me="auto"
-          mb={{ base: "20px", md: "auto" }}
+        <Stack
           as="form"
           onSubmit={handleSubmit}
+          spacing="16px"
+          w="100%"
+          maxW="100%"
+          bg="transparent"
+          borderRadius="15px"
+          p="20px"
+          boxShadow="lg"
         >
-          {/* Google sign-in button (you may remove if not needed) */}
-          <Button
-            fontSize="sm"
-            me="0px"
-            mb="26px"
-            py="15px"
-            h="50px"
-            borderRadius="16px"
-            bg={googleBg}
-            color={googleText}
-            fontWeight="500"
-            _hover={googleHover}
-            _active={googleActive}
-            _focus={googleActive}
-            type="button"
-          >
-            <Icon as={FcGoogle} w="20px" h="20px" me="10px" />
-            Sign in with Google
-          </Button>
-
-          <Flex align="center" mb="25px">
-            <HSeparator />
-            <Text color="gray.400" mx="14px">
-              or
-            </Text>
-            <HSeparator />
-          </Flex>
-
-          <FormControl isRequired mb="24px">
+          <FormControl isRequired>
             <FormLabel
-              display="flex"
-              ms="4px"
               fontSize="sm"
               fontWeight="500"
               color={textColor}
               mb="8px"
             >
-              User ID<Text color={brandStars}>*</Text>
+              User ID <Text as="span" color={brandStars}>*</Text>
             </FormLabel>
             <Input
               variant="auth"
               fontSize="sm"
-              ms={{ base: "0px", md: "0px" }}
-              type="text"
               placeholder="Enter your user ID"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
               size="lg"
+              transition="all 0.2s"
+              _focus={{ boxShadow: "outline", borderColor: textColorBrand }}
+              aria-label="User ID"
             />
           </FormControl>
 
-          <FormControl isRequired mb="24px">
+          <FormControl isRequired>
             <FormLabel
-              ms="4px"
               fontSize="sm"
               fontWeight="500"
               color={textColor}
-              display="flex"
+              mb="8px"
             >
-              Password<Text color={brandStars}>*</Text>
+              Password <Text as="span" color={brandStars}>*</Text>
             </FormLabel>
-            <InputGroup size="md">
+            <InputGroup size="lg">
               <Input
                 fontSize="sm"
                 placeholder="Min. 8 characters"
-                size="lg"
                 type={show ? "text" : "password"}
                 variant="auth"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                transition="all 0.2s"
+                _focus={{ boxShadow: "outline", borderColor: textColorBrand }}
+                aria-label="Password"
               />
-              <InputRightElement display="flex" alignItems="center" mt="4px">
+              <InputRightElement display="flex" alignItems="center">
                 <Icon
                   color={textColorSecondary}
                   _hover={{ cursor: "pointer" }}
                   as={show ? RiEyeCloseLine : MdOutlineRemoveRedEye}
                   onClick={handleClick}
+                  aria-label={show ? "Hide password" : "Show password"}
                 />
               </InputRightElement>
             </InputGroup>
           </FormControl>
 
-          <FormControl isRequired mb="24px">
+          <FormControl isRequired>
             <FormLabel
-              ms="4px"
               fontSize="sm"
               fontWeight="500"
               color={textColor}
-              display="flex"
+              mb="8px"
             >
-              Khu vực<Text color={brandStars}>*</Text>
+              Area <Text as="span" color={brandStars}>*</Text>
             </FormLabel>
             <Select
               variant="auth"
               size="lg"
               value={dbType}
               onChange={(e) => setDbType(e.target.value)}
+              transition="all 0.2s"
+              _focus={{ boxShadow: "outline", borderColor: textColorBrand }}
+              aria-label="Select area"
             >
               <option value="HN">HN</option>
               <option value="HCM">HCM</option>
@@ -232,14 +188,17 @@ function SignIn() {
           </FormControl>
 
           {errorMsg && (
-            <Text color="red.500" mb="24px" fontSize="sm" textAlign="center">
-              {errorMsg}
-            </Text>
+            <Fade in={errorMsg}>
+              <Alert status="error" borderRadius="md" fontSize="sm">
+                <AlertIcon />
+                {errorMsg}
+              </Alert>
+            </Fade>
           )}
 
-          <Flex justifyContent="space-between" align="center" mb="24px">
+          <Flex justifyContent="space-between" align="center">
             <FormControl display="flex" alignItems="center">
-              <Checkbox id="remember-login" colorScheme="brandScheme" me="10px" />
+              <Checkbox id="remember-login" colorScheme="brand" mr="8px" />
               <FormLabel
                 htmlFor="remember-login"
                 mb="0"
@@ -254,8 +213,8 @@ function SignIn() {
               <Text
                 color={textColorBrand}
                 fontSize="sm"
-                w="124px"
                 fontWeight="500"
+                _hover={{ textDecoration: "underline" }}
               >
                 Forgot password?
               </Text>
@@ -268,30 +227,23 @@ function SignIn() {
             fontWeight="500"
             w="100%"
             h="50px"
-            mb="24px"
             type="submit"
             isLoading={loading}
+            loadingText="Signing In"
+            _hover={{ transform: "translateY(-2px)", transition: "all 0.2s" }}
           >
             Sign In
           </Button>
 
-          <Flex
-            flexDirection="column"
-            justifyContent="center"
-            alignItems="start"
-            maxW="100%"
-            mt="0px"
-          >
-            <Text color={textColorDetails} fontWeight="400" fontSize="14px">
-              Not registered yet?
-              <NavLink to="/auth/sign-up">
-                <Text color={textColorBrand} as="span" ms="5px" fontWeight="500">
-                  Create an Account
-                </Text>
-              </NavLink>
-            </Text>
-          </Flex>
-        </Flex>
+          <Text color={textColorSecondary} fontWeight="400" fontSize="sm" textAlign="center">
+            Not registered yet?{" "}
+            <NavLink to="/auth/sign-up">
+              <Text as="span" color={textColorBrand} fontWeight="500" _hover={{ textDecoration: "underline" }}>
+                Create an Account
+              </Text>
+            </NavLink>
+          </Text>
+        </Stack>
       </Flex>
     </DefaultAuth>
   );
